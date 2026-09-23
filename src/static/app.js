@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const searchInput = document.getElementById("activity-search");
   const searchButton = document.getElementById("search-button");
   const categoryFilters = document.querySelectorAll(".category-filter");
+  const difficultyFilters = document.querySelectorAll(".difficulty-filter");
   const dayFilters = document.querySelectorAll(".day-filter");
   const timeFilters = document.querySelectorAll(".time-filter");
 
@@ -24,6 +25,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginForm = document.getElementById("login-form");
   const closeLoginModal = document.querySelector(".close-login-modal");
   const loginMessage = document.getElementById("login-message");
+  const themeToggleButton = document.getElementById("theme-toggle-button");
+  const themeToggleIcon = document.getElementById("theme-toggle-icon");
+  const themeToggleLabel = document.getElementById("theme-toggle-label");
 
   // Activity categories with corresponding colors
   const activityTypes = {
@@ -37,6 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // State for activities and filters
   let allActivities = {};
   let currentFilter = "all";
+  let currentDifficulty = "all-levels";
   let searchQuery = "";
   let currentDay = "";
   let currentTimeRange = "";
@@ -45,6 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Authentication state
   let currentUser = null;
+  let currentTheme = "light";
 
   // Time range mappings for the dropdown
   const timeRanges = {
@@ -55,6 +61,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initialize filters from active elements
   function initializeFilters() {
+    const activeDifficultyFilter = document.querySelector(
+      ".difficulty-filter.active"
+    );
+    if (activeDifficultyFilter) {
+      currentDifficulty = activeDifficultyFilter.dataset.difficulty;
+    }
+
     // Initialize day filter
     const activeDayFilter = document.querySelector(".day-filter.active");
     if (activeDayFilter) {
@@ -117,6 +130,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Set authentication class on body
     updateAuthBodyClass();
+  }
+
+  function updateThemeToggleUI() {
+    if (currentTheme === "dark") {
+      themeToggleIcon.textContent = "☀️";
+      themeToggleLabel.textContent = "Light mode";
+    } else {
+      themeToggleIcon.textContent = "🌙";
+      themeToggleLabel.textContent = "Dark mode";
+    }
+  }
+
+  function applyTheme(theme) {
+    currentTheme = theme === "dark" ? "dark" : "light";
+    document.body.setAttribute("data-theme", currentTheme);
+    localStorage.setItem("themePreference", currentTheme);
+    updateThemeToggleUI();
+  }
+
+  function initializeTheme() {
+    const savedTheme = localStorage.getItem("themePreference");
+    if (savedTheme === "dark" || savedTheme === "light") {
+      applyTheme(savedTheme);
+      return;
+    }
+
+    applyTheme("light");
+  }
+
+  function toggleTheme() {
+    applyTheme(currentTheme === "dark" ? "light" : "dark");
   }
 
   // Validate user session with the server
@@ -240,6 +284,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loginButton.addEventListener("click", openLoginModal);
   logoutButton.addEventListener("click", logout);
   closeLoginModal.addEventListener("click", closeLoginModalHandler);
+  themeToggleButton.addEventListener("click", toggleTheme);
 
   // Close login modal when clicking outside
   window.addEventListener("click", (event) => {
@@ -404,6 +449,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function normalizeDifficulty(difficulty) {
+    if (!difficulty || typeof difficulty !== "string") {
+      return "";
+    }
+
+    return difficulty.toLowerCase();
+  }
+
   // Function to determine activity type (this would ideally come from backend)
   function getActivityType(activityName, description) {
     const name = activityName.toLowerCase();
@@ -525,6 +578,16 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
+      const activityDifficulty = normalizeDifficulty(details.difficulty);
+
+      if (currentDifficulty === "all-levels") {
+        if (activityDifficulty) {
+          return;
+        }
+      } else if (activityDifficulty !== currentDifficulty) {
+        return;
+      }
+
       // Apply weekend filter if selected
       if (currentTimeRange === "weekend" && details.schedule_details) {
         const activityDays = details.schedule_details.days;
@@ -609,6 +672,10 @@ document.addEventListener("DOMContentLoaded", () => {
       </span>
     `;
 
+    const difficultyHtml = details.difficulty
+      ? `<p><strong>Difficulty:</strong> ${details.difficulty}</p>`
+      : "";
+
     // Create capacity indicator
     const capacityIndicator = `
       <div class="capacity-container ${capacityStatusClass}">
@@ -634,6 +701,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ${tagHtml}
       <h4>${name}</h4>
       <p>${details.description}</p>
+      ${difficultyHtml}
       <p class="tooltip">
         <strong>Schedule:</strong> ${formattedSchedule}
         <span class="tooltip-text">Regular meetings at this time throughout the semester</span>
@@ -746,6 +814,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Update current filter and display filtered activities
       currentFilter = button.dataset.category;
+      displayFilteredActivities();
+    });
+  });
+
+  difficultyFilters.forEach((button) => {
+    button.addEventListener("click", () => {
+      difficultyFilters.forEach((btn) => btn.classList.remove("active"));
+      button.classList.add("active");
+      currentDifficulty = button.dataset.difficulty;
       displayFilteredActivities();
     });
   });
@@ -992,6 +1069,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Expose filter functions to window for future UI control
   window.activityFilters = {
+    setDifficultyFilter: (difficulty) => {
+      currentDifficulty = difficulty;
+      displayFilteredActivities();
+    },
     setDayFilter,
     setTimeRangeFilter,
   };
@@ -1003,6 +1084,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Initialize app
+  initializeTheme();
   sharedActivityName = getSharedActivityName();
   shouldScrollToSharedActivity = Boolean(sharedActivityName);
   checkAuthentication();
