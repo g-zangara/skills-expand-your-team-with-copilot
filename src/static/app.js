@@ -40,6 +40,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let searchQuery = "";
   let currentDay = "";
   let currentTimeRange = "";
+  let sharedActivityName = "";
+  let shouldScrollToSharedActivity = false;
 
   // Authentication state
   let currentUser = null;
@@ -304,6 +306,104 @@ document.addEventListener("DOMContentLoaded", () => {
     return details.schedule;
   }
 
+  function getSharedActivityName() {
+    const hashValue = window.location.hash.replace(/^#/, "");
+    if (hashValue) {
+      const hashParams = new URLSearchParams(hashValue);
+      const hashActivity = hashParams.get("activity");
+      if (hashActivity) {
+        return hashActivity;
+      }
+    }
+
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.get("activity") || "";
+  }
+
+  function createActivityShareUrl(activityName) {
+    const shareUrl = new URL(window.location.href);
+    shareUrl.hash = new URLSearchParams({ activity: activityName }).toString();
+    return shareUrl.toString();
+  }
+
+  function buildActivityShareText(activityName, details) {
+    return `Check out ${activityName} at Mergington High School. ${details.description} Meets ${formatSchedule(
+      details
+    )}.`;
+  }
+
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const tempInput = document.createElement("textarea");
+    tempInput.value = text;
+    tempInput.setAttribute("readonly", "readonly");
+    tempInput.style.position = "absolute";
+    tempInput.style.left = "-9999px";
+    document.body.appendChild(tempInput);
+    tempInput.select();
+    document.execCommand("copy");
+    document.body.removeChild(tempInput);
+  }
+
+  async function copyActivityLink(activityName) {
+    try {
+      await copyTextToClipboard(createActivityShareUrl(activityName));
+      showMessage("Activity link copied. Share it with a friend.", "success");
+    } catch (error) {
+      showMessage("We could not copy the link right now.", "error");
+      console.error("Error copying activity link:", error);
+    }
+  }
+
+  async function shareActivity(activityName, details) {
+    const shareUrl = createActivityShareUrl(activityName);
+
+    if (!navigator.share) {
+      await copyActivityLink(activityName);
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: `${activityName} | Mergington High School`,
+        text: buildActivityShareText(activityName, details),
+        url: shareUrl,
+      });
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        await copyActivityLink(activityName);
+      }
+    }
+  }
+
+  function highlightSharedActivity() {
+    if (!sharedActivityName) {
+      return;
+    }
+
+    const matchingCard = Array.from(
+      activitiesList.querySelectorAll(".activity-card")
+    ).find((card) => card.dataset.activityName === sharedActivityName);
+
+    if (!matchingCard) {
+      return;
+    }
+
+    activitiesList
+      .querySelectorAll(".shared-activity-highlight")
+      .forEach((card) => card.classList.remove("shared-activity-highlight"));
+
+    matchingCard.classList.add("shared-activity-highlight");
+    if (shouldScrollToSharedActivity) {
+      matchingCard.scrollIntoView({ behavior: "smooth", block: "center" });
+      shouldScrollToSharedActivity = false;
+    }
+  }
+
   // Function to determine activity type (this would ideally come from backend)
   function getActivityType(activityName, description) {
     const name = activityName.toLowerCase();
@@ -470,12 +570,15 @@ document.addEventListener("DOMContentLoaded", () => {
     Object.entries(filteredActivities).forEach(([name, details]) => {
       renderActivityCard(name, details);
     });
+
+    highlightSharedActivity();
   }
 
   // Function to render a single activity card
   function renderActivityCard(name, details) {
     const activityCard = document.createElement("div");
     activityCard.className = "activity-card";
+    activityCard.dataset.activityName = name;
 
     // Calculate spots and capacity
     const totalSpots = details.max_participants;
@@ -518,6 +621,14 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
     `;
+
+    const shareUrl = createActivityShareUrl(name);
+    const emailSubject = encodeURIComponent(
+      `Check out ${name} at Mergington High School`
+    );
+    const emailBody = encodeURIComponent(
+      `${buildActivityShareText(name, details)}\n\n${shareUrl}`
+    );
 
     activityCard.innerHTML = `
       ${tagHtml}
@@ -569,6 +680,20 @@ document.addEventListener("DOMContentLoaded", () => {
         `
         }
       </div>
+      <div class="share-actions">
+        <button class="share-button" data-activity="${name}">
+          Share
+        </button>
+        <button class="share-button secondary" data-copy-activity="${name}">
+          Copy Link
+        </button>
+        <a
+          class="share-button secondary share-link"
+          href="mailto:?subject=${emailSubject}&body=${emailBody}"
+        >
+          Email
+        </a>
+      </div>
     `;
 
     // Add click handlers for delete buttons
@@ -586,6 +711,16 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     }
+
+    const shareButton = activityCard.querySelector(".share-button");
+    shareButton.addEventListener("click", async () => {
+      await shareActivity(name, details);
+    });
+
+    const copyButton = activityCard.querySelector("[data-copy-activity]");
+    copyButton.addEventListener("click", async () => {
+      await copyActivityLink(name);
+    });
 
     activitiesList.appendChild(activityCard);
   }
@@ -861,7 +996,15 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeRangeFilter,
   };
 
+  window.addEventListener("hashchange", () => {
+    sharedActivityName = getSharedActivityName();
+    shouldScrollToSharedActivity = true;
+    displayFilteredActivities();
+  });
+
   // Initialize app
+  sharedActivityName = getSharedActivityName();
+  shouldScrollToSharedActivity = Boolean(sharedActivityName);
   checkAuthentication();
   initializeFilters();
   fetchActivities();
